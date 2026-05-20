@@ -1,0 +1,241 @@
+name: CI
+
+on:
+  push:
+    branches: [ganesh-dev]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  UV_VERSION: "0.11.7"
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: uv run ruff check src tests
+      - run: uv run mypy src
+
+  test-unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    # tests/unit/test_ui_invariants.py imports streamlit_app, whose module-level
+    # main() runs _bootstrap() at import time (Streamlit's run model has no
+    # __name__ == "__main__" hook). _bootstrap() calls assert_db_at_head(),
+    # which opens a real Postgres connection and reads alembic_version. So this
+    # job needs the same Postgres service + applied migrations as the
+    # integration job, even though no test actually queries the DB.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: store_assistant
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: store_assistant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U store_assistant -d store_assistant"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ANTHROPIC_API_KEY: ci-not-used-in-unit-tests
+      APP_PASSPHRASE: open-sesame
+      POSTGRES_USER: store_assistant
+      POSTGRES_PASSWORD: change_me
+      POSTGRES_DB: store_assistant
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      AGENT_CHECKPOINT_DB_URL: postgresql://store_assistant:change_me@localhost:5432/store_assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+      - run: uv run pytest tests/unit -v
+
+  test-integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: store_assistant
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: store_assistant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U store_assistant -d store_assistant"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: store_assistant
+      POSTGRES_PASSWORD: change_me
+      POSTGRES_DB: store_assistant
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      ANTHROPIC_API_KEY: ci-not-used-in-tests
+      APP_PASSPHRASE: open-sesame
+      AGENT_CHECKPOINT_DB_URL: postgresql://store_assistant:change_me@localhost:5432/store_assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+      - name: Run integration tests
+        run: uv run pytest tests/integration -v
+
+  db-migration-check:
+    name: Migration round-trip & drift
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: store_assistant
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: store_assistant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U store_assistant -d store_assistant"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: store_assistant
+      POSTGRES_PASSWORD: change_me
+      POSTGRES_DB: store_assistant
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      ANTHROPIC_API_KEY: ci-not-used-in-migrations
+      APP_PASSPHRASE: open-sesame
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - name: upgrade head
+        run: uv run alembic upgrade head
+      - name: downgrade base
+        run: uv run alembic downgrade base
+      - name: upgrade head again
+        run: uv run alembic upgrade head
+      - name: drift check
+        run: uv run alembic check
+
+  ddl-guard:
+    name: No raw DDL in src/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scan src/ for DDL keywords
+        run: |
+          if grep -rEn 'CREATE TABLE|ALTER TABLE|DROP TABLE|CREATE INDEX|DROP INDEX|CREATE EXTENSION|CREATE TYPE' src/ ; then
+            echo "::error::Raw DDL found in src/. All schema changes must go through alembic/versions/."
+            exit 1
+          fi
+          echo "no DDL in src/"
+
+  security-scan:
+    name: Security scan
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: store_assistant
+          POSTGRES_PASSWORD: change_me
+          POSTGRES_DB: store_assistant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U store_assistant -d store_assistant"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: store_assistant
+      POSTGRES_PASSWORD: change_me
+      POSTGRES_DB: store_assistant
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      ANTHROPIC_API_KEY: ci-not-used-in-security-scan
+      APP_PASSPHRASE: open-sesame
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - name: Apply migrations (so alembic check runs against a real schema)
+        run: uv run alembic upgrade head
+      - name: Run security scan
+        run: ./scripts/security_scan.sh
+
+  evals:
+    name: Evals (replay)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - name: Run replay evals
+        run: make evals
+      - name: Upload latest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-replay-report
+          path: reports/evals/*.md
+          retention-days: 30

@@ -1,0 +1,8 @@
+# Vulnerabilities acknowledged here are NOT auto-fixable today (no fix version
+# published, or upstream has not yet released a remediated build). Each entry
+# must include the CVE/GHSA id, the affected package, and a short rationale.
+# When a fix becomes available, remove the line and bump the package.
+#
+# Format: <ID>  # package@version — rationale
+
+CVE-2026-3219  # pip — no fix version published; pip is a build-tool dependency, not a runtime attack surface for the agent

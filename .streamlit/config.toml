@@ -1,0 +1,15 @@
+# Streamlit runtime config for the demo UI. Intentionally minimal —
+# no third-party styling, no custom CSS. The theme is a neutral light
+# palette; the toolbar is collapsed to the rerun / settings affordances
+# only so the chat surface is the visual focus.
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"
+primaryColor = "#1f2937"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f9fafb"
+textColor = "#111827"
+font = "sans serif"

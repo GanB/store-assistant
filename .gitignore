@@ -1,0 +1,96 @@
+# Local agent / tool working directory
+.claude/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.*.local
+.env.*
+!.env.example
+
+# Secrets and credentials
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*secret*
+*Secret*
+*SECRET*
+*credential*
+*Credential*
+*CREDENTIAL*
+*token*
+*Token*
+*TOKEN*
+*password*
+*Password*
+*PASSWORD*
+secrets/
+credentials/
+.ssh/
+
+# IDE / editor
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.swp
+*.swo
+*.swn
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Node (in case any tooling pulls it in)
+node_modules/
+
+# Database dumps and volumes
+*.sql.gz
+*.dump
+*.bak
+pg_data/
+postgres_data/
+volumes/
+
+# Logs
+*.log
+logs/
+
+# uv
+uv.lock.bak
+
+# Eval reports are generated artifacts; CI uploads them as build artifacts.
+reports/evals/*.md

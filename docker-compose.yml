@@ -1,0 +1,79 @@
+# Two app services share the same image but expose different entrypoints:
+# - backend: headless / CLI surface for future workers and one-shot tasks
+# - ui:      Streamlit demo on port 8501
+# Splitting them keeps the demo UI restartable without bouncing the backend
+# and makes the port-exposed (UI) and not-exposed (backend) services explicit.
+
+x-app-env: &app-env
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+  LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-store-assistant}
+  LANGSMITH_TRACING: ${LANGSMITH_TRACING:-true}
+  POSTGRES_USER: ${POSTGRES_USER:-store_assistant}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+  POSTGRES_DB: ${POSTGRES_DB:-store_assistant}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+  APP_PASSPHRASE: ${APP_PASSPHRASE:-change_me_to_a_real_passphrase}
+  APP_LLM_MODEL: ${APP_LLM_MODEL:-claude-sonnet-4-5}
+  APP_MAX_GRAPH_ITERATIONS: ${APP_MAX_GRAPH_ITERATIONS:-20}
+  AGENT_CHECKPOINT_DB_URL: postgresql://${POSTGRES_USER:-store_assistant}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-store_assistant}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: store_assistant_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-store_assistant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-store_assistant}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-store_assistant} -d ${POSTGRES_DB:-store_assistant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    image: store_assistant_app:latest
+    container_name: store_assistant_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+
+  ui:
+    image: store_assistant_app:latest
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: store_assistant_ui
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    ports:
+      - "8501:8501"
+    command:
+      - streamlit
+      - run
+      - src/store_assistant/ui/streamlit_app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+
+volumes:
+  postgres_data:
+    name: store_assistant_postgres_data
